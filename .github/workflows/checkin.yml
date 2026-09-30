@@ -1,7 +1,7 @@
 name: AnyRouter 自动签到
 on:
   schedule:
-    - cron: '0 */10 * * *'
+    - cron: '40 0 * * *'
   workflow_dispatch:
     inputs:
       debug:
@@ -79,6 +79,27 @@ jobs:
         key: browser-profiles-${{ runner.os }}-v1
         restore-keys: |
           browser-profiles-${{ runner.os }}-
+
+    - name: 随机等待到北京时间 09:00-09:50
+      if: github.event_name == 'schedule'
+      shell: bash
+      run: |
+        TODAY=$(TZ=Asia/Taipei date +%F)
+        BASE_EPOCH=$(TZ=Asia/Taipei date -d "$TODAY 09:00:00" +%s)
+        RANDOM_VALUE=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
+        OFFSET=$((RANDOM_VALUE % 3000))
+        TARGET_EPOCH=$((BASE_EPOCH + OFFSET))
+        CURRENT_EPOCH=$(date +%s)
+        WAIT_SECONDS=$((TARGET_EPOCH - CURRENT_EPOCH))
+
+        echo "本次随机签到目标时间: $(TZ=Asia/Taipei date -d "@$TARGET_EPOCH" '+%F %T %Z')"
+
+        if [ "$WAIT_SECONDS" -gt 0 ]; then
+          echo "等待 $WAIT_SECONDS 秒后执行签到"
+          sleep "$WAIT_SECONDS"
+        else
+          echo "当前时间已超过本次随机目标时间，立即执行签到"
+        fi
 
     - name: 配置代理
       env:
