@@ -81,6 +81,7 @@ jobs:
           browser-profiles-${{ runner.os }}-
 
     - name: 随机等待到北京时间 09:00-10:00
+      id: random_wait
       if: github.event_name == 'schedule'
       shell: bash
       run: |
@@ -91,30 +92,28 @@ jobs:
         tz = timezone(timedelta(hours=8))
         now = datetime.now(tz)
 
-        target = now.replace(
-            hour=9,
-            minute=random.randint(0, 59),
-            second=random.randint(0, 59),
-            microsecond=0,
-        )
+        start = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        end = now.replace(hour=10, minute=0, second=0, microsecond=0)
 
-        # 如果 GitHub Actions 因队列延迟已经超过 10:00，
-        # 为避免下午才签到，直接结束本次定时任务。
-        if now.hour >= 10:
+        if now >= end:
             print(-1)
         else:
-            # 若已进入 9 点且随机目标早于当前时间，
-            # 将目标调整为当前时间之后 1~5 分钟内。
-            if target <= now:
-                target = now + timedelta(seconds=random.randint(60, 300))
-            print(int(target.timestamp()))
+            # 在 09:00:00 ~ 09:59:59 内选择目标时间。
+            # 如果 Actions 已经进入 9 点才启动，则从“当前时间”到 10 点之间随机。
+            lower = max(start, now)
+            lower_epoch = int(lower.timestamp())
+            upper_epoch = int(end.timestamp()) - 1
+            print(random.randint(lower_epoch, upper_epoch))
         PY
         )
 
         if [ "$TARGET_EPOCH" -lt 0 ]; then
           echo "GitHub Actions 启动时间已超过北京时间 10:00，本次定时签到跳过"
+          echo "skip_checkin=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
+
+        echo "skip_checkin=false" >> "$GITHUB_OUTPUT"
 
         CURRENT_EPOCH=$(date +%s)
         WAIT_SECONDS=$((TARGET_EPOCH - CURRENT_EPOCH))
@@ -128,6 +127,7 @@ jobs:
         fi
 
     - name: 配置代理
+      if: steps.random_wait.outputs.skip_checkin != 'true'
       env:
         PROXY_SUBSCRIPTION_URL: ${{ secrets.PROXY_SUBSCRIPTION_URL }}
         PROXY_TEST_URL: https://www.google.com/generate_204
@@ -136,6 +136,7 @@ jobs:
       run: bash scripts/setup_mihomo_proxy.sh
 
     - name: 执行签到
+      if: steps.random_wait.outputs.skip_checkin != 'true'
       env:
         DEBUG_MODE: ${{ env.DEBUG_MODE }}
         CHECKIN_HEADLESS: false
@@ -177,7 +178,7 @@ jobs:
         retention-days: 14
 
     - name: 停止代理
-      if: always()
+      if: always() && steps.random_wait.outputs.skip_checkin != 'true'
       run: bash scripts/stop_mihomo_proxy.sh
 
     - name: 执行结果
